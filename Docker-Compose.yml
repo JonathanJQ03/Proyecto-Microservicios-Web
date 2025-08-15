@@ -1,0 +1,153 @@
+version: '3.9'
+
+services:
+  # Angular frontend
+  angular-frontend:
+    image: rej-angular:latest
+    container_name: angular-frontend
+    ports:
+      - "4200:4200"
+    depends_on:
+      - auth-service
+      - client-service
+      - order-service
+      - tracking-service
+
+  # Auth Service
+  auth-service:
+    image: rej-auth:latest
+    container_name: auth-service
+    environment:
+      PORT: 8081
+      DB_HOST: auth-postgres
+      DB_PORT: 5432
+      DB_NAME: clients_db
+      DB_USER: postgres
+      DB_PASSWORD: admin123
+      JWT_SECRET: 404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970
+      JPA_DDL_AUTO: update
+      JPA_SHOW_SQL: true
+      HIBERNATE_DIALECT: org.hibernate.dialect.PostgreSQLDialect
+    depends_on:
+      auth-postgres:
+        condition: service_healthy
+    ports:
+      - "8081:8081"
+
+  # PostgreSQL para Auth / Client
+  auth-postgres:
+    image: postgres:15-alpine
+    container_name: auth-postgres
+    environment:
+      POSTGRES_DB: clients_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: admin123
+    ports:
+      - "5433:5432"
+    volumes:
+      - auth-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      retries: 5
+      start_period: 5s
+
+  # Client Service
+  client-service:
+    image: rej-client:latest
+    container_name: client-service
+    environment:
+      PORT: 8088
+      DB_HOST: auth-postgres
+      DB_PORT: 5432
+      DB_DATABASE: clients_db
+      DB_USER: postgres
+      DB_PASSWORD: admin123
+      JWT_SECRET: 404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970
+    depends_on:
+      auth-postgres:
+        condition: service_healthy
+    ports:
+      - "8088:8088"
+
+  # Order Service
+  order-service:
+    image: rej-order:latest
+    container_name: order-service
+    environment:
+      PORT: 8083
+      DB_HOST: order-mysql
+      DB_PORT: 3306
+      DB_NAME: registros
+      DB_USER: root
+      DB_PASSWORD: admin123
+      JWT_SECRET: 404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970
+      JPA_DDL_AUTO: update
+      JPA_SHOW_SQL: true
+      HIBERNATE_DIALECT: org.hibernate.dialect.MySQL8Dialect
+      CORS_ALLOWED_ORIGINS: http://localhost:4200
+      TRACKING_SERVICE_URL: http://tracking-service:8085
+      CLIENT_SERVICE_URL: http://client-service:8088
+    depends_on:
+      order-mysql:
+        condition: service_healthy
+      tracking-service:
+        condition: service_started
+      client-service:
+        condition: service_started
+    ports:
+      - "8083:8083"
+
+  # MySQL para Order / Tracking
+  order-mysql:
+    image: mysql:8.1
+    container_name: order-mysql
+    environment:
+      MYSQL_DATABASE: registros
+      MYSQL_ROOT_PASSWORD: admin123
+    ports:
+      - "3310:3306"
+    command: --default-authentication-plugin=mysql_native_password
+    volumes:
+      - order-mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -uroot -padmin123"]
+      interval: 5s
+      retries: 5
+      start_period: 10s
+
+  # Tracking Service
+  tracking-service:
+    image: rej-tracking:latest
+    container_name: tracking-service
+    environment:
+      PORT: 8085
+      DB_HOST: order-mysql
+      DB_PORT: 3306
+      DB_NAME: registros
+      DB_USER: root
+      DB_PASSWORD: admin123
+      JWT_SECRET: 404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970
+      JPA_DDL_AUTO: update
+      JPA_SHOW_SQL: true
+      HIBERNATE_DIALECT: org.hibernate.dialect.MySQLDialect
+      REDIS_HOST: tracking-redis
+      REDIS_PORT: 6379
+    depends_on:
+      order-mysql:
+        condition: service_healthy
+      tracking-redis:
+        condition: service_started
+    ports:
+      - "8085:8085"
+
+  # Redis para Tracking
+  tracking-redis:
+    image: redis:7-alpine
+    container_name: tracking-redis
+    ports:
+      - "6379:6379"
+
+volumes:
+  auth-postgres-data:
+  order-mysql-data:
